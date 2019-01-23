@@ -30,7 +30,6 @@ package Bio::EnsEMBL::Production::Pipeline::RDF::RDFDump;
 
 use strict;
 use warnings;
-use FindBin qw($Bin);
 
 use parent ('Bio::EnsEMBL::Production::Pipeline::Common::Base');
 
