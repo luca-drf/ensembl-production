@@ -75,16 +75,17 @@ sub run {
   #
   # configure bulk extractor to go all the way down to protein features.
   # can also be told to stop at transcript level as well as others.
-  # my $bulk = Bio::EnsEMBL::Production::DBSQL::BulkFetcher->new(-level => 'protein_feature');
+  my $bulk = Bio::EnsEMBL::Production::DBSQL::BulkFetcher->new(-level => 'protein_feature');
   my $dba = $self->get_DBAdaptor;
-  my $formatter = Bio::EnsEMBL::Production::Search::RDFFormatter->new(
-      -config_file  => $self->param_required('config_file'),
-      -ontology_dba => $self->get_DBAdaptor('ontology')
-  );
-  my $sub_dir = $self->get_data_path('json');
-  my $genome_in_file = File::Spec->catfile($sub_dir, $species . '_genome.json');
-  my $genes_in_file = File::Spec->catfile($sub_dir, $species . '_genes.json');
-
+  my $genes = $bulk->export_genes($dba, undef, 'protein_feature', $self->param('xref'));
+  my $compara_name = $self->param('eg')?$self->division():'Multi';
+  eval {
+    my $compara_dba =
+      Bio::EnsEMBL::Registry->get_adaptor($compara_name, 'compara', 'GenomeDB');
+    $bulk->add_compara($species, $genes, $compara_dba);
+  } or do {
+    warn "Compara DB $compara_name not found - compara data not being added";
+  };
   my $hive_dbc = $self->dbc;
   $hive_dbc->disconnect_if_idle() if defined $hive_dbc;
 
@@ -97,17 +98,12 @@ sub run {
   my $path = $self->data_path();
   $path = $self->get_dir($release) unless defined $path && $path ne '';
 
-  # my $core_rdf_file = catdir($path, $species . ".ttl");
-  my $core_rdf_file = File::Spec->catfile($path, $species . ".ttl");
-  my $core_dba = $self->get_DBAdaptor();
-  $formatter->reformat_core($genome_in_file, $genes_in_file, $core_dba, $core_rdf_file);
+  my $core_rdf_file = catdir($path, $species . ".ttl");
+  $self->dump_core_rdf($core_rdf_file, $slices, $genes);
 
   # xrefs are optional
-  # my $xrefs_rdf_file = catdir();
-  my $xrefs_rdf_file = File::Spec->catfile($path, $species . "_xrefs.ttl");
-  $formatter->reformat_xrefs($genome_in_file, $genes_in_file, $core_dba, $xrefs_rdf_file) if $self->param('xref');
-  # $self->dump_xrefs_rdf($xrefs_rdf_file, $genes) if $self->param('xref');
-
+  my $xrefs_rdf_file = catdir($path, $species . "_xrefs.ttl");
+  $self->dump_xrefs_rdf($xrefs_rdf_file, $genes) if $self->param('xref');
   #
   ###########
 
@@ -154,6 +150,74 @@ sub data_path {
   return $self->get_dir('rdf', $self->param('species'));
 }
 
+# encapsulate the details of RDF writing
+# uses the ensembl-io framework
+sub dump_core_rdf {
+  my ($self, $core_fname, $slices, $genes) = @_;
+
+  ### Dump core RDF ###
+  #
+  # start writing out: namespaces and species info
+  my $fh = IO::File->new($core_fname, "w") || die "$! $core_fname";
+  my $core_writer = Bio::EnsEMBL::IO::Writer::RDF->new();
+  $core_writer->open($fh);
+
+  my $meta_adaptor = $self->get_DBAdaptor->get_MetaContainer;
+  $core_writer->write(Bio::EnsEMBL::IO::Object::RDF->namespaces());
+  $core_writer->write(Bio::EnsEMBL::IO::Object::RDF->species(
+    taxon_id        => $meta_adaptor->get_taxonomy_id,
+    scientific_name => $meta_adaptor->get_scientific_name,
+    common_name     => $meta_adaptor->get_common_name
+  ));
+
+  # write sequence regions
+  my $slice_trans = Bio::EnsEMBL::IO::Translator::Slice->new(version => $self->param('release'), meta_adaptor => $meta_adaptor);
+  map { $core_writer->write($_, $slice_trans) } @{$slices};
+
+  # write BulkFetcher 'features'
+  my $feature_trans = Bio::EnsEMBL::IO::Translator::BulkFetcherFeature->new(
+    version           => $self->param('release'),
+    xref_mapping_file => $self->param('config_file'), # required for mapping Ensembl things to RDF
+    adaptor           => $self->get_DBAdaptor
+  );
+  map { $core_writer->write($_, $feature_trans) } @{$genes};
+
+  # finally write connecting triple to master RDF file
+  $core_writer->write(Bio::EnsEMBL::IO::Object::RDF->dataset(
+    version         => $self->param('release'),
+    project         => $self->param('eg')?'ensemblgenomes':'ensembl',
+    production_name => $self->production_name
+  ));
+  $core_writer->close();
+  #
+  ################
+
+}
+
+sub dump_xrefs_rdf {
+  my ($self, $xrefs_fname, $genes) = @_;
+
+  ### Xrefs RDF ###
+  #
+  my $fh = IO::File->new($xrefs_fname, "w") || die "$! $xrefs_fname";
+  my $feature_trans = Bio::EnsEMBL::IO::Translator::BulkFetcherFeature->new(
+    version           => $self->param('release'),
+    xref_mapping_file => $self->param('config_file'), # required for mapping Ensembl things to RDF
+    adaptor           => $self->get_DBAdaptor
+  );
+  my $xrefs_writer = Bio::EnsEMBL::IO::Writer::RDF::XRefs->new($feature_trans);
+  $xrefs_writer->open($fh);
+
+  # write namespaces
+  $xrefs_writer->write(Bio::EnsEMBL::IO::Object::RDF->namespaces());
+
+  # then dump feature xrefs
+  map { $xrefs_writer->write($_) } @{$genes};
+
+  $xrefs_writer->close();
+  #
+  ################
+}
 
 sub create_virtuoso_file {
   my $self = shift;
