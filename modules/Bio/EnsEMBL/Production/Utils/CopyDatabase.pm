@@ -709,7 +709,7 @@ sub copy_mysql_dump {
   my $copy_failed=0;
   my $file=$dump_path.$source_db->{host}.'_'.$source_db->{dbname}.'_'.time().'.sql';
   $logger->info("Dumping $source_db->{dbname} from $source_db->{host} to file $file");
-  my @dump_cmd = ("mysqldump", "--max_allowed_packet=1024M", "--skip-lock-tables", "--host=$source_db->{host}", "--user=$source_db->{user}", "--port=$source_db->{port}");
+  my @dump_cmd = ("mysqldump", "--quick", "--max_allowed_packet=1024M", "--skip-lock-tables", "--host=$source_db->{host}", "--user=$source_db->{user}", "--port=$source_db->{port}");
   # IF we have specified a password
   if (defined $source_db->{pass}){
     push (@dump_cmd, "--password=$source_db->{pass}");
