@@ -735,7 +735,7 @@ sub copy_mysql_dump {
   $logger->info("Creating database $target_db->{dbname} on $target_db->{host}");
   $target_dbh->do("CREATE DATABASE $target_db->{dbname}") or die $target_dbh->errstr;
   $logger->info("Loading file $file into $target_db->{dbname} on $target_db->{host}");
-  if ( system("mysql --host=$target_db->{host} --user=$target_db->{user} --password=$target_db->{pass} --port=$target_db->{port} $target_db->{dbname} < $file") != 0 ) {
+  if ( system("mysql --max_allowed_packet=512M --host=$target_db->{host} --user=$target_db->{user} --password=$target_db->{pass} --port=$target_db->{port} $target_db->{dbname} < $file") != 0 ) {
     $logger->info("Cannot load file into $target_db->{dbname} on $target_db->{host}");
     $copy_failed = 1;
   }
