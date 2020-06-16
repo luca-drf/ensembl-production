@@ -47,7 +47,9 @@ sub default_options {
     meta_filters => {},
     production_db => 'ensembl_production',
     production_host => 'meta1',
-    compara_host => 'st3-w',
+
+    ## Allow compara host to be explicitly specified
+    compara_host => undef,
 
     ## Allow division of compara database to be explicitly specified
     compara_division => undef,
